@@ -1,20 +1,32 @@
-# PXLogic protocol documentation
+# PXLogic info and protocol documentation
+
+PXLogic is a series of ultra-low-cost logic analyzers that has theoretical performance comparable to the DreamSourceLab DSLogic U3 series, but available at a much lower price point due to the use of lower cost components.
+
+Depending on the hardware configuration, it supports up to 32 channels, external trigger input / output, 1 PWM output channel of up to 1MHz, and sample rate up to 1Gsps (with 2 channels enabled simultaneously in streaming mode, and 8 channels enabled simultaneously in buffered mode).
+
+## Hardware
+
+- **FPGA**: Pangomicro Logos family (PGL22G-6CMBG324)
+- **USB interface controller**: WCH CH569W
+- **RAM**: Micron MT41K256M16TW-107:P DDR3 256Mx16bit
+- **PMIC**: Everanalog EA3059
+- **Input ESD Protection**: 9x STMicroelectronics USBLC6-4SC6 TVS diode array
 
 ## lsusb
 
 See [lsusb.txt](./lsusb.txt)
 
-## Channels
+## Endpoints
 
 - Interface 0
-    - Channel 1: Control register access channel
-    - Channel 2: Data acquisition channel
-    - Channel 3: Device configuration data channel
+    - Endpoint 1: Control register access endpoint
+    - Endpoint 2: Data acquisition endpoint
+    - Endpoint 3: Device configuration data endpoint
 - Interface 1
-    - Channel 4: Unknown registers (used for debugging?)
-    - Channel 5: Unknown
-    - Channel 6: Unknown
-    - Channel 7: Unknown
+    - Endpoint 4: Unknown registers (used for debugging?)
+    - Endpoint 5: Unknown
+    - Endpoint 6: Unknown
+    - Endpoint 7: Unknown
 
 ## Firmware files
 
@@ -29,11 +41,11 @@ To initialize the device, the following steps should be performed:
 
 ## Control register
 
-Control registers are 32-bit registers that contain device identification, device states, and can be used to control device function.
+Control registers are 32-bit registers that contain certain device identification information, device states, and can be used to control device function.
 
 There are 2 banks of registers, starting at address `0x0000` and `0x2000` respectively. The bank at `0x0000` seems to be sampler configuration registers, while the bank at `0x2000` seems to be general device configuration registers.
 
-These registers are accessed through Interface 0, Channel 1 via a simple packet-based protocol. Each request and response packet consists the following (in little-endian):
+These registers are accessed through Interface 0, Endpoint 1 via a simple packet-based protocol. Each request and response packet consists the following (in little-endian):
 
 | Offset | Type | Name | Description |
 | - | - | - | - |
@@ -54,10 +66,10 @@ If the device successfully fulfilled a write request, the `reg_data` in the resp
 | 0x0018 | CLK_DIV | R/W | Sampler clock divider. |
 | 0x001c | SAMPLE_FRAME_SIZE | W | Sampler frame size (guess) (`BUFSIZE` in PXView). |
 | 0x0020 | - | W | Unknown. Should write 0 to it after setting `TRIG_*` |
-| 0x0024 | TRIG_ZERO | W | Low level trigger enable. |
-| 0x0028 | TRIG_ONE | W | High level trigger enable. |
-| 0x002c | TRIG_RISE | W | Rising edge trigger enable. |
-| 0x0030 | TRIG_FALL | W | Falling edge trigger enable. |
+| 0x0024 | TRIG_ZERO | W | Low level trigger bitmask. |
+| 0x0028 | TRIG_ONE | W | High level trigger bitmask. |
+| 0x002c | TRIG_RISE | W | Rising edge trigger bitmask. |
+| 0x0030 | TRIG_FALL | W | Falling edge trigger bitmask. |
 | 0x2008 | XFER_FRAME_SIZE | W | Maximum trasfer frame size (guess) (`BUFSIZE` in PXView). |
 | 0x200c | FWRAM_READ_START | W | Start address of the FWRAM read request. Must be page-aligned (4KiB). |
 | 0x2010 | FWRAM_READ_END | W | End address of the FWRAM read request. Must be page-aligned (4KiB). |
@@ -75,7 +87,7 @@ If the device successfully fulfilled a write request, the `reg_data` in the resp
 | 0x2054 | TRIGGER_POS_REAL | R | Unused. TODO: Unknown (`trigger_pos_real` in PXView). |
 | 0x2058 | DEV_VARIANT | R | Device variant (`logic_mode` in PXView). |
 
-### CLK_CONF
+### 0x0014 - CLK_CONF
 
 | Bitpos (E:I) | Name | Description |
 | - | - | - |
@@ -83,7 +95,7 @@ If the device successfully fulfilled a write request, the `reg_data` in the resp
 | 6:3 | CLK_CONF_SELECT | Sampler clock select (`gpio_mode` in PXView). |
 | 32:6 | - | Unknown. Should be set to 0. |
 
-#### CLK_CONF_SELECT
+#### 0x0014\[6:3\] - CLK_CONF_SELECT
 
 Select a base sampler clock. The `F_SAMPLER` is determined by this value.
 
@@ -98,22 +110,36 @@ Select a base sampler clock. The `F_SAMPLER` is determined by this value.
 | 6 | CLK_200MHZ | 200 MHz sampler clock. |
 | 7 | CLK_100MHZ | 100 MHz sampler clock. |
 
-### CLK_DIV
+### 0x0018 - CLK_DIV
 
 The clock divider value (minus 1) of the sampler.
 
 Actual clock frequency is determined by `F_SAMPLER / (CLK_DIV + 1)`. For example, `CLK_DIV` of 1 with `F_SAMPLER` of 100MHz results in a final sampler clock rate of 50MHz.
 
-### FWRAM_READ_PAGE / FWRAM_WRITE_PAGE
+In PXView, this is only used alongside with `F_SAMPLER` of 100MHz (i.e. `CLK_CONF_SELECT = CLK_100MHZ`).
+
+### 0x001c - SAMPLE_FRAME_SIZE
+
+Seems to be the frame size used by the sampler. Normally this should match `XFER_FRAME_SIZE`.
+
+### 0x2008 - XFER_FRAME_SIZE
+
+Seems to be the frame size used by the USB controller. Normally this should match `SAMPLE_FRAME_SIZE`.
+
+### 0x200c - FWRAM_READ_PAGE
 
 | Value | Name | Notes |
 | - | - | - |
-| 0 | MCU_PROG_FLASH | First 48KiB is bootloader (32KiB is currently used), then the main program starts at the 48KiB mark. |
+| 0 | MCU_PROG_FLASH | First 48KiB is bootloader (24KiB actually on chip, PXLogic allocates 32KiB block for the upload), then the main program starts at the 48KiB mark. |
 | 1 | FPGA_FLASH | FPGA Flash (unused). |
 | 2 | FPGA_RAM | FPGA RAM (unused). |
 | 4 | FPGA_CFGRAM | Where the bit file goes. Length varies. |
 
-### DEV_VARIANT
+### 0x2020 - FWRAM_WRITE_PAGE
+
+See `0x200c - FWRAM_READ_PAGE`.
+
+### 0x2058 - DEV_VARIANT
 
 Known values are as follows:
 
