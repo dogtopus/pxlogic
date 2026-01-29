@@ -66,15 +66,15 @@ If the device successfully fulfilled a write request, the `reg_data` in the resp
 | 0x0000 | MODE | W | Sampler mode config. |
 | 0x0004 | PWM_VREF_CMP_PERIOD | W | Coarse VREF generator period comparator input. (`pwm_max` in PXView). |
 | 0x0008 | PWM_VREF_CMP_DUTY | W | Coarse VREF generator duty cycle comparator input. |
-| 0x0010 | CHANNEL_MASK | W | Channel mask configuration. |
+| 0x0010 | CHANNEL_EN | W | Channel enable. |
 | 0x0014 | CLK_CONF | W | Sampler clock config. |
 | 0x0018 | CLK_DIV | R/W | Sampler clock divider. |
 | 0x001c | SAMPLE_FRAME_SIZE | W | Sampler frame size (guess) (`BUFSIZE` in PXView). |
-| 0x0020 | - | W | Unknown. Should write `0xffffffff` to it before configuring the sample count and 0 to it after setting `TRIG_*` |
-| 0x0024 | TRIG_ZERO | W | Low level trigger bitmask. |
-| 0x0028 | TRIG_ONE | W | High level trigger bitmask. |
-| 0x002c | TRIG_RISE | W | Rising edge trigger bitmask. |
-| 0x0030 | TRIG_FALL | W | Falling edge trigger bitmask. |
+| 0x0020 | STOP | W | Stop sampler. |
+| 0x0024 | TRIG_LOW | W | Low level trigger bitmask. |
+| 0x0028 | TRIG_HIGH | W | High level trigger bitmask. |
+| 0x002c | TRIG_RISING | W | Rising edge trigger bitmask. |
+| 0x0030 | TRIG_FALLING | W | Falling edge trigger bitmask. |
 | 0x003c | TRIG_EXT_MODE | W | External trigger mode. |
 | 0x0040 | PWM0_CONF | W | PWM0 config. |
 | 0x0044 | PWM0_CMP_PERIOD | W | PWM0 period comparator input. |
@@ -100,6 +100,20 @@ If the device successfully fulfilled a write request, the `reg_data` in the resp
 | 0x2054 | TRIGGER_POS_REAL | R | Unused. TODO: Unknown (`trigger_pos_real` in PXView). |
 | 0x2058 | DEV_VARIANT | R | Device variant (`logic_mode` in PXView). |
 
+### 0x0000 - MODE
+
+This register holds some basic configuration options for the sampler.
+
+| Bitpos (E:I) | Name | Description |
+| - | - | - |
+| 0 | - | Unknown. Should be set to 1 during initialization and 0 before setting the channel triggers. |
+| 1 | STREAMING | Turn on streaming mode. |
+| 2 | - | Unknown. Should be set to 1 during initialization and 0 before setting the channel triggers. |
+| 3 | FILTER_EN | Enable one sample filter. |
+| 4 | - | Unknown. Should toggle this after programming the VREF generator. |
+| 32:5 | - | Unknown. Should be set to 0. |
+
+
 ### 0x0004 - PWM_VREF_CMP_PERIOD
 
 This value should have the same meaning as `PWM*_CMP_PERIOD`, however this is unverified.
@@ -115,6 +129,10 @@ During trigger level selection, PXView writes a fixed value `12000` to it.
 This value should have the same meaning as `PWM*_CMP_DUTY`, however this is unverified.
 
 During trigger level selection, PXView writes the value `Vth * (100.0 / 200.0) / 3.334 * PWM_VREF_CMP_PERIOD` to it. The `100.0 / 200.0` part reflects the frontend design (i.e. it divides the input voltage by 2 using two 100kOhm resistors).
+
+### 0x0010 - CHANNEL_EN
+
+Pretty straightforward: just a bitfield that has the LSB representing channel 0, and the MSB representing channel 31. Note that on variants with less than 32 channels one should probably keep the unsupported channels at 0.
 
 ### 0x0014 - CLK_CONF
 
@@ -147,9 +165,24 @@ Actual clock frequency is determined by `F_SAMPLER / (CLK_DIV + 1)`. For example
 
 In PXView, this is only used alongside with `F_SAMPLER` of 100MHz (i.e. `CLK_CONF_SELECT = CLK_100MHZ`).
 
+### 0x0018 - STOP
+
+Seems to be controlling the sampler activity.
+
+Should write `0xffffffff` to it before configuring the sampler and `0x0` to it before actually start sampling.
+
 ### 0x001c - SAMPLE_FRAME_SIZE
 
 Seems to be the frame size used by the sampler. Normally this should match `XFER_FRAME_SIZE`.
+
+### 0x0024..=0x0030 - TRIG_\*
+
+Control whether to trigger on low/high/rising edge/falling edge. They are simple bitfields like `CHANNEL_EN`.
+
+Two things to note:
+
+1. To trigger on both edges, set both `TRIG_RISING[n]` and `TRIG_FALLING[n]`.
+2. `TRIG_LOW[n]` and `TRIG_HIGH[n]` should probably not be 1 at the same time.
 
 ### 0x003c - TRIG_EXT_MODE
 
@@ -157,12 +190,12 @@ This control the Trigger In channel behavior.
 
 | Value | Name | Notes |
 | - | - | - |
-| 0 | TRIGGER_NONE | No trigger. |
-| 1 | TRIGGER_RISING | Trigger on rising edge. |
-| 2 | TRIGGER_HIGH | Trigger on high level. |
-| 3 | TRIGGER_FALLING | Trigger on falling edge. |
-| 4 | TRIGGER_LOW | Trigger on low level. |
-| 5 | TRIGGER_EDGE | Trigger on any edge. |
+| 0 | TRIG_NONE | No trigger. |
+| 1 | TRIG_RISING | Trigger on rising edge. |
+| 2 | TRIG_HIGH | Trigger on high level. |
+| 3 | TRIG_FALLING | Trigger on falling edge. |
+| 4 | TRIG_LOW | Trigger on low level. |
+| 5 | TRIG_EDGE | Trigger on any edge. |
 
 ### 0x0040 - PWM0_CONF
 
@@ -210,7 +243,22 @@ Known values are as follows:
 
 | Value | Name | Device Name | Notes |
 | - | - | - | - |
-| 0 | VARIANT_32CH | PX Logic 32 | 32 ch, 1Gsps |
-| 1 | VARIANT_16CH_1000 | PX Logic 16 Pro | 16 ch, 1Gsps |
-| 2 | VARIANT_16CH_500 | PX Logic 16 Plus | 16 ch, 500Msps |
-| 3 | VARIANT_16CH_250 | PX Logic 16 Base | 16 ch, 250Msps |
+| 0 | VARIANT_32 | PX Logic 32 | 32 ch, 1Gsps |
+| 1 | VARIANT_16_PRO | PX Logic 16 Pro | 16 ch, 1Gsps |
+| 2 | VARIANT_16_PLUS | PX Logic 16 Plus | 16 ch, 500Msps |
+| 3 | VARIANT_16_BASE | PX Logic 16 Base | 16 ch, 250Msps |
+
+## Driver design notes
+
+### Device probing
+
+First, search for USB devices that match the following udev rules:
+
+```udev
+# PX Logic 32 running older firmware
+SUBSYSTEM=="usb", ATTR{idVendor}=="1a86", ATTR{idProduct}=="5237", ATTR{manufacturer}=="PX"
+# PX Logic with recent firmware
+SUBSYSTEM=="usb", ATTR{idVendor}=="16c0", ATTR{idProduct}=="05dc", ATTR{manufacturer}=="PX"
+```
+
+After finding the target devices, read the `DEV_VARIANT` register to determine the exact type.
