@@ -343,4 +343,14 @@ The entire process is as follows:
 - Configure internal triggers (`TRIG_{LOW,HIGH,RISING,FALLING}`).
 - Clear the `STOP` register.
 
-After configuration, the device will start sending capture data through IN EP2.
+After configuration, the device will wait for triggers.
+
+### Trigger handling
+
+TODO: There's EP0 vendor request 0xb0 that seems to return some trigger-related info. PXView seems to call this at unknown time by listening to STDIN (???) for events. Do a USB protocol capture while connecting the device to a manually controlled trigger signal to check when and how frequent to send this request.
+
+The device will start sending capture data through IN EP2 once the trigger condition has been met.
+
+### Frame format
+
+The frame format seems to be the same as the interleaved format used by DSLogic, but expanded to support at most 32 channels.
