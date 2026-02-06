@@ -63,11 +63,11 @@ If the device successfully fulfilled a write request, the `reg_data` in the resp
 
 | Offset | Name | R/W | Description |
 | - | - | - | - |
-| 0x0000 | MODE | W | Sampler mode config. |
-| 0x0004 | PWM_VREF_CMP_PERIOD | W | Coarse VREF generator period comparator input. (`pwm_max` in PXView). |
-| 0x0008 | PWM_VREF_CMP_DUTY | W | Coarse VREF generator duty cycle comparator input. |
+| 0x0000 | MODE | R/W | Sampler mode config. |
+| 0x0004 | PWM_VREF_CMP_PERIOD | R/W | Coarse VREF generator period comparator input. (`pwm_max` in PXView). |
+| 0x0008 | PWM_VREF_CMP_DUTY | R/W | Coarse VREF generator duty cycle comparator input. |
 | 0x0010 | CHANNEL_EN | W | Channel enable. |
-| 0x0014 | CLK_CONF | W | Sampler clock config. |
+| 0x0014 | CLK_CONF | R/W | Sampler clock config. |
 | 0x0018 | CLK_DIV | R/W | Sampler clock divider. |
 | 0x001c | SAMPLE_FRAME_SIZE | W | Sampler frame size (guess) (`BUFSIZE` in PXView). |
 | 0x0020 | STOP | W | Stop sampler. |
@@ -96,8 +96,8 @@ If the device successfully fulfilled a write request, the `reg_data` in the resp
 | 0x2030 | MCU_RESET | W | Writing 0 to it resets the USB interface controller. |
 | 0x2034 | MCU_FW_VERSION | R | The USB interface controller firmware version. |
 | 0x204c | ENABLED_NUM_CH | W | Total number of channels enabled (`ch_num` in PXView). |
-| 0x2050 | TRIGGER_POS_SET | W | TODO: Unknown (`trigger_pos_set` in PXView). |
-| 0x2054 | TRIGGER_POS_REAL | R | Unused. TODO: Unknown (`trigger_pos_real` in PXView). |
+| 0x2050 | TRIGGER_POS | W | Desired trigger position (capture ratio in samples). |
+| 0x2054 | TRIGGER_POS_REAL | R | Actual trigger position (unused). |
 | 0x2058 | DEV_VARIANT | R | Device variant (`logic_mode` in PXView). |
 
 ### 0x0000 - MODE
@@ -138,11 +138,11 @@ Pretty straightforward: just a bitfield that has the LSB representing channel 0,
 
 | Bitpos (E:I) | Name | Description |
 | - | - | - |
-| 3:0 | - | Unknown. Should be set to 0. |
-| 6:3 | CLK_CONF_SELECT | Sampler clock select (`gpio_mode` in PXView). |
-| 32:6 | - | Unknown. Should be set to 0. |
+| 3:0 | SELECT | Sampler clock select (`gpio_mode` in PXView). |
+| 3 | EDGE | Sampler clock edge (0: rising edge, 1: falling edge / invert clock) (`clock_edge` in PXView). |
+| 32:4 | - | Unknown. Should be set to 0. |
 
-#### 0x0014\[6:3\] - CLK_CONF_SELECT
+#### 0x0014\[3:0\] - CLK_CONF_SELECT
 
 Select a base sampler clock. The `F_SAMPLER` is determined by this value.
 
@@ -156,6 +156,10 @@ Select a base sampler clock. The `F_SAMPLER` is determined by this value.
 | 5 | CLK_400MHZ | 400 MHz sampler clock. |
 | 6 | CLK_200MHZ | 200 MHz sampler clock. |
 | 7 | CLK_100MHZ | 100 MHz sampler clock. |
+
+#### 0x0014\[4\] - CLK_CONF_EDGE
+
+Set whether or not to invert the clock of the sampler / set whether the sampler runs on rising edge or falling edge.
 
 ### 0x0018 - CLK_DIV
 
@@ -173,7 +177,19 @@ Should write `0xffffffff` to it before configuring the sampler and `0x0` to it b
 
 ### 0x001c - SAMPLE_FRAME_SIZE
 
-Seems to be the frame size used by the sampler. Normally this should match `XFER_FRAME_SIZE`.
+Seems to be the frame size in bytes used by the sampler. Normally this should match `XFER_FRAME_SIZE`.
+
+Value must both be page-aligned to 4KiB, and aligned to number of enabled input channels.
+
+PXView determines this value through the following process:
+
+- Determine the maximum size the buffer can be of (MAX).
+  - For USB Super Speed, this is 4MiB.
+  - For USB HighSpeed and below, this is 4.8Mbit (10ms of data at 480Mbps).
+- Determine the typical size of the buffer (TYP).
+  - This is 10ms of data at the sample rate, times the number of channels.
+- If TYP goes above MAX, use MAX, rounded down to align with both the number of channels and page boundary (`(MAX / num_enabled_channels / 4096) * 4096 * num_enabled_channels` in integer math).
+- Otherwise, use TYP.
 
 ### 0x0024..=0x0030 - TRIG_\*
 
@@ -222,7 +238,9 @@ The layout is the same as the `PWM0_*` registers. Currently this is unfinished a
 
 ### 0x2008 - XFER_FRAME_SIZE
 
-Seems to be the frame size used by the USB controller. Normally this should match `SAMPLE_FRAME_SIZE`.
+Seems to be the frame size in bytes used by the USB controller. Normally this should match `SAMPLE_FRAME_SIZE`.
+
+Value must both be page-aligned to 4KiB, and aligned to number of enabled input channels.
 
 ### 0x200c - FWRAM_READ_PAGE
 
@@ -255,10 +273,74 @@ Known values are as follows:
 First, search for USB devices that match the following udev rules:
 
 ```udev
-# PX Logic 32 running older firmware
+# PX Logic 32 running older firmware (WCH 5237)
 SUBSYSTEM=="usb", ATTR{idVendor}=="1a86", ATTR{idProduct}=="5237", ATTR{manufacturer}=="PX"
-# PX Logic with recent firmware
+# PX Logic with recent firmware (libusb generic VID:PID)
 SUBSYSTEM=="usb", ATTR{idVendor}=="16c0", ATTR{idProduct}=="05dc", ATTR{manufacturer}=="PX"
 ```
 
 After finding the target devices, read the `DEV_VARIANT` register to determine the exact type.
+
+### PXView predefined sample rate config
+
+| Rate | CLK_CONF_SELECT | CLK_DIV |
+| - | - | - |
+| 2kHz | CLK_100MHZ | 49999 |
+| 5kHz | CLK_100MHZ | 19999 |
+| 10kHz | CLK_100MHZ | 9999 |
+| 20kHz | CLK_100MHZ | 4999 |
+| 40kHz | CLK_100MHZ | 2499 |
+| 50kHz | CLK_100MHZ | 1999 |
+| 100kHz | CLK_100MHZ | 999 |
+| 200kHz | CLK_100MHZ | 499 |
+| 400kHz | CLK_100MHZ | 249 |
+| 500kHz | CLK_100MHZ | 199 |
+| 1MHz | CLK_100MHZ | 99 |
+| 2MHz | CLK_100MHZ | 49 |
+| 4MHz | CLK_100MHZ | 24 |
+| 5MHz | CLK_100MHZ | 19 |
+| 10MHz | CLK_100MHZ | 9 |
+| 20MHz | CLK_100MHZ | 4 |
+| 25MHz | CLK_100MHZ | 3 |
+| 50MHz | CLK_100MHZ | 1 |
+| 100MHz | CLK_100MHZ | 0 |
+| 125MHz | CLK_125MHZ | 0 |
+| 200MHz | CLK_200MHZ | 0 |
+| 250MHz | CLK_250MHZ | 0 |
+| 400MHz | CLK_400MHZ | 0 |
+| 500MHz | CLK_500MHZ | 0 |
+| 800MHz | CLK_800MHZ | 0 |
+| 1GHz | CLK_1GHZ | 0 |
+
+### PXView device configuration process
+
+Configuration upload is done in `pxlogic.c:start_transfers()`.
+
+The entire process is as follows:
+
+- Configure PWM output channels
+  - Setting `PWM*_CONF` to 0 before making changes to `PWM*_CMP_PERIOD` and `PWM*_CMP_DUTY`.
+  - These two registers should be set according to the rules defined in the register doc.
+  - PWM1 is disabled, thus `PWM1_CONF_PWM_EN` should always be set to 0.
+- Clear the `BLOCK_START` register.
+- Clear the STALL condition on EP2 and EP4.
+- Configure the VREF PWM channel (`PWM_VREF_CMP_*`)
+- Clear the `CHANNEL_EN` register.
+- Toggle bits in the `MODE` register.
+  - In a single write request, set bit 0 and bit 2, set `STREAMING` bit if device will be working in streaming mode, and clear all the other bits.
+  - In two subsequent write requests, keep all the bits the same as above, and toggle the bit 4 on and off.
+  - TODO: The exact behavior of this is unknown. Could be a reset mechanism of some sort. More testing needed.
+- Write `0xffffffff` to the `STOP` register.
+- Compute and set `SAMPLE_FRAME_SIZE` and `XFER_FRAME_SIZE`.
+- Compute and set `NUM_SAMPLES_{HI,LO}`.
+- Compute and set `CLK_CONF` and `CLK_DIV` based on *PXView predefined sample rate config*.
+- Configure `TRIG_EXT_MODE` and turn on `TRIG_EXT_EN` if requested by the user.
+- Configure sampler clock (`CLK_CONF` and `CLK_DIV`).
+- Set the `ENABLED_NUM_CH` register.
+- Set the `TRIGGER_POS` register based on capture ratio.
+- Clear the `BLOCK_START` register again.
+- Set the `CHANNEL_EN` register to reflect the channel status.
+- Configure internal triggers (`TRIG_{LOW,HIGH,RISING,FALLING}`).
+- Clear the `STOP` register.
+
+After configuration, the device will start sending capture data through IN EP2.
