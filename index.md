@@ -347,9 +347,19 @@ After configuration, the device will wait for triggers.
 
 ### Trigger handling
 
-TODO: There's EP0 vendor request 0xb0 that seems to return some trigger-related info. PXView seems to call this at unknown time by listening to STDIN (???) for events. Do a USB protocol capture while connecting the device to a manually controlled trigger signal to check when and how frequent to send this request.
+PXView periodically calls a callback function that sends vendor-specific control transfer 0xb0 to the device. The device then returns a 16-byte message that has the following format:
 
-The device will start sending capture data through IN EP2 once the trigger condition has been met.
+| Offset | Type | Name | Description |
+| - | - | - | - |
+| 0 | u64 | sample_offset | Total number of samples currently taken by the sampler (including discarded ones). |
+| 8 | u32 | activated | Bitfield that indicates which channel has been fired. |
+| 12 | u32 | pos_real | Indicate which sample the trigger has been fired on. |
+
+When not triggered, `activated` and `pos_real` will be 0.
+
+PXView polls a dummy file descriptor with a timeout of 5ms to call that callback.
+
+The device will start sending capture data through IN EP2 once the trigger condition has been met. It should be possible to ignore the control transfer and instead just listen to the EP2 until it returns data.
 
 ### Frame format
 
