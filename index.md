@@ -96,8 +96,8 @@ If the device successfully fulfilled a write request, the `reg_data` in the resp
 | 0x2030 | MCU_RESET | W | Writing 0 to it resets the USB interface controller. |
 | 0x2034 | MCU_FW_VERSION | R | The USB interface controller firmware version. |
 | 0x204c | ENABLED_NUM_CH | W | Total number of channels enabled (`ch_num` in PXView). |
-| 0x2050 | TRIGGER_POS | W | Desired trigger position (capture ratio in samples). |
-| 0x2054 | TRIGGER_POS_REAL | R | Actual trigger position (unused). |
+| 0x2050 | TRIG_POINT | W | Desired trigger position (capture ratio in samples). |
+| 0x2054 | TRIG_POINT_REAL | R | Actual trigger position (unused). |
 | 0x2058 | DEV_VARIANT | R | Device variant (`logic_mode` in PXView). |
 
 ### 0x0000 - MODE
@@ -333,13 +333,14 @@ The entire process is as follows:
 - Write `0xffffffff` to the `STOP` register.
 - Compute and set `SAMPLE_FRAME_SIZE` and `XFER_FRAME_SIZE`.
 - Compute and set `NUM_SAMPLES_{HI,LO}`.
+- Configure `TRIG_EXT_MODE` and turn on `TRIG_OUT_EN` if requested by the user.
 - Compute and set `CLK_CONF` and `CLK_DIV` based on *PXView predefined sample rate config*.
-- Configure `TRIG_EXT_MODE` and turn on `TRIG_EXT_EN` if requested by the user.
-- Configure sampler clock (`CLK_CONF` and `CLK_DIV`).
 - Set the `ENABLED_NUM_CH` register.
-- Set the `TRIGGER_POS` register based on capture ratio.
+- Set the `TRIG_POINT` register based on capture ratio.
 - Clear the `BLOCK_START` register again.
 - Set the `CHANNEL_EN` register to reflect the channel status.
+- Toggle bits in the `MODE` register again.
+  - Clear bit 0 and bit 2, set `FILTER_EN` if requested by the user.
 - Configure internal triggers (`TRIG_{LOW,HIGH,RISING,FALLING}`).
 - Clear the `STOP` register.
 
