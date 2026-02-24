@@ -69,7 +69,7 @@ If the device successfully fulfilled a write request, the `reg_data` in the resp
 | 0x0010 | CHANNEL_EN | W | Channel enable. |
 | 0x0014 | CLK_CONF | R/W | Sampler clock config. |
 | 0x0018 | CLK_DIV | R/W | Sampler clock divider. |
-| 0x001c | SAMPLE_FRAME_SIZE | W | Sampler frame size (guess) (`BUFSIZE` in PXView). |
+| 0x001c | SAMPLE_BUFFER_SIZE | W | Sampler frame buffer size (guess) (`BUFSIZE` in PXView). |
 | 0x0020 | STOP | W | Stop sampler. |
 | 0x0024 | TRIG_LOW | W | Low level trigger bitmask. |
 | 0x0028 | TRIG_HIGH | W | High level trigger bitmask. |
@@ -83,7 +83,7 @@ If the device successfully fulfilled a write request, the `reg_data` in the resp
 | 0x0050 | PWM1_CMP_PERIOD | W | PWM1 period comparator input. |
 | 0x0054 | PWM1_CMP_DUTY | W | PWM1 duty cycle comparator input. |
 | 0x0058 | TRIG_OUT_EN | W | Trigger out enable. |
-| 0x2008 | XFER_FRAME_SIZE | W | Maximum transfer frame size (guess) (`BUFSIZE` in PXView). |
+| 0x2008 | XFER_BUFFER_SIZE | W | Maximum transfer frame buffer size (guess) (`BUFSIZE` in PXView). |
 | 0x200c | FWRAM_READ_START | W | Start address of the FWRAM read request. Must be page-aligned (4KiB). |
 | 0x2010 | FWRAM_READ_END | W | End address of the FWRAM read request. Must be page-aligned (4KiB). |
 | 0x2014 | FWRAM_READ_PAGE | W | FWRAM page to read from. |
@@ -175,20 +175,20 @@ Seems to be controlling the sampler activity.
 
 Should write `0xffffffff` to it before configuring the sampler and `0x0` to it before actually start sampling.
 
-### 0x001c - SAMPLE_FRAME_SIZE
+### 0x001c - SAMPLE_BUFFER_SIZE
 
-Seems to be the frame size in bytes used by the sampler. Normally this should match `XFER_FRAME_SIZE`.
+Seems to be the maximum frame buffer size in bytes used by the sampler. Normally this should match `XFER_BUFFER_SIZE`.
 
-Value must both be page-aligned to 4KiB, and aligned to number of enabled input channels.
+Value must both be page-aligned to 4KiB, and aligned to frame size.
 
-PXView determines this value through the following process:
+The buffer contains various number of frames back-to-back. PXView determines this value through the following process:
 
 - Determine the maximum size the buffer can be of (MAX).
   - For USB Super Speed, this is 4MiB.
   - For USB HighSpeed and below, this is 4.8Mbit (10ms of data at 480Mbps).
 - Determine the typical size of the buffer (TYP).
   - This is 10ms of data at the sample rate, times the number of channels.
-- If TYP goes above MAX, use MAX, rounded down to align with both the number of channels and page boundary (`(MAX / num_enabled_channels / 4096) * 4096 * num_enabled_channels` in integer math).
+- If TYP goes above MAX, use MAX, rounded down to align with both the frame and page boundary (`(MAX / num_enabled_channels / 4096) * 4096 * num_enabled_channels` in integer math).
 - Otherwise, use TYP.
 
 ### 0x0024..=0x0030 - TRIG_\*
@@ -236,11 +236,11 @@ The relationship between this and the output duty cycle is `DUTY_OUT = (PWM0_CMP
 
 The layout is the same as the `PWM0_*` registers. Currently this is unfinished and using it may cause undesired effect. PXView always writes 0 to `PWM1_CONF` to disable it when starting a new capture session.
 
-### 0x2008 - XFER_FRAME_SIZE
+### 0x2008 - XFER_BUFFER_SIZE
 
-Seems to be the frame size in bytes used by the USB controller. Normally this should match `SAMPLE_FRAME_SIZE`.
+Seems to be the maximum frame buffer size in bytes used by the USB controller. Normally this should match `SAMPLE_BUFFER_SIZE`.
 
-Value must both be page-aligned to 4KiB, and aligned to number of enabled input channels.
+Value must both be page-aligned to 4KiB, and aligned to frame size.
 
 ### 0x200c - FWRAM_READ_PAGE
 
@@ -254,6 +254,10 @@ Value must both be page-aligned to 4KiB, and aligned to number of enabled input 
 ### 0x2020 - FWRAM_WRITE_PAGE
 
 See `0x200c - FWRAM_READ_PAGE`.
+
+### 0x202c - BLOCK_START
+
+Writing 0 to this register seems to reset certain states related to the sampler after the sampler has been (re)configured. Without this the capture won't start.
 
 ### 0x2058 - DEV_VARIANT
 
@@ -323,6 +327,7 @@ The entire process is as follows:
   - These two registers should be set according to the rules defined in the register doc.
   - PWM1 is disabled, thus `PWM1_CONF_PWM_EN` should always be set to 0.
 - Clear the `BLOCK_START` register.
+  - Seems like this can be skipped.
 - Clear the STALL condition on EP2 and EP4.
 - Configure the VREF PWM channel (`PWM_VREF_CMP_*`)
 - Clear the `CHANNEL_EN` register.
@@ -338,13 +343,14 @@ The entire process is as follows:
 - Set the `ENABLED_NUM_CH` register.
 - Set the `TRIG_POINT` register based on capture ratio.
 - Clear the `BLOCK_START` register again.
+  - Without this the capture won't start.
 - Set the `CHANNEL_EN` register to reflect the channel status.
 - Toggle bits in the `MODE` register again.
   - Clear bit 0 and bit 2, set `FILTER_EN` if requested by the user.
 - Configure internal triggers (`TRIG_{LOW,HIGH,RISING,FALLING}`).
 - Clear the `STOP` register.
 
-After configuration, the device will wait for triggers.
+After configuration, the host will then periodically check the trigger status until some triggers have been fired.
 
 ### Trigger handling
 
@@ -352,15 +358,15 @@ PXView periodically calls a callback function that sends vendor-specific control
 
 | Offset | Type | Name | Description |
 | - | - | - | - |
-| 0 | u64 | sample_offset | Total number of samples currently taken by the sampler (including discarded ones). |
-| 8 | u32 | activated | Bitfield that indicates which channel has been fired. |
-| 12 | u32 | pos_real | Indicate which sample the trigger has been fired on. |
+| 0 | u64 | sample_offset | Total number of samples currently acquired by the sampler (including discarded ones). |
+| 8 | u32 | activated | Bitfield that indicates which channels have caused a trigger to fire. |
+| 12 | u32 | pos_real | Indicate the position (in number of samples) where the trigger line should be. |
 
 When not triggered, `activated` and `pos_real` will be 0.
 
 PXView polls a dummy file descriptor with a timeout of 5ms to call that callback.
 
-The device will start sending capture data through IN EP2 once the trigger condition has been met. It should be possible to ignore the control transfer and instead just listen to the EP2 until it returns data.
+The device will start sending capture data through IN EP2 once the trigger condition has been met. Therefore for a minimal implementation it should be possible to ignore the control transfer and instead just listen to the EP2 until it returns data.
 
 ### Frame format
 
