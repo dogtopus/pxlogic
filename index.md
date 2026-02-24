@@ -371,3 +371,5 @@ The device will start sending capture data through IN EP2 once the trigger condi
 ### Frame format
 
 The frame format seems to be the same as the interleaved format used by DSLogic, but expanded to support at most 32 channels.
+
+Channel data are split into stripes of 64-bit little endian integers, and one frame contains one or multiple of such stripes with the exact number corresponding to the number of enabled channels.
