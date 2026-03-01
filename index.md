@@ -12,8 +12,12 @@ Depending on the hardware configuration, it supports up to 32 channels, external
 - **PMIC**: Everanalog EA3059
 - **Input voltage divider**: 1:2 (standard voltage divider made with two 100kOhm resistors)
 - **Input ESD protection**: 9x STMicroelectronics USBLC6-4SC6 TVS diode array
-- **USB-C mux**: Via Labs VL162 (purpose unknown)
-- **USB HighSpeed hub controller**: CoreChips SL2.1s (purpose unknown)
+- **USB-C mux**: Via Labs VL162
+  - Seems to be responsible for selecting HighSpeed/SuperSpeed connections based on host port capability.
+- **USB HighSpeed hub controller**: CoreChips SL2.1s
+  - Shows up as `1a40:0101` after connecting the device to the PC as a USB HighSpeed device (e.g. by using a USB HighSpeed-only Type C cable).
+  - The D+/D- pins of CH569W are connected to Port 3 of this hub. Port 1 connects to an unpopulated 10-pin chip.
+  - Could be for some unfinished genuine product certification system or a leftover debugging interface.
 
 ## lsusb
 
@@ -370,6 +374,6 @@ The device will start sending capture data through IN EP2 once the trigger condi
 
 ### Frame format
 
-The frame format seems to be the same as the interleaved format used by DSLogic, but expanded to support at most 32 channels.
-
 Channel data are split into stripes of 64-bit little endian integers, and one frame contains one or multiple of such stripes with the exact number corresponding to the number of enabled channels.
+
+This format seems to be the same as the interleaved format used by DSLogic, but expanded to support at most 32 channels.
