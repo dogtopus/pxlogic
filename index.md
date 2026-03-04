@@ -19,6 +19,10 @@ Depending on the hardware configuration, it supports up to 32 channels, external
   - The D+/D- pins of CH569W are connected to Port 3 of this hub. Port 1 connects to an unpopulated 10-pin chip.
   - Could be for some unfinished genuine product certification system or a leftover debugging interface.
 
+### Boot button
+
+There is a boot button located on the device at the right side of the USB-C port, that is accessible via a SIM ejecting tool. Press and hold it while plugging the device into a PC drops the device into ISP mode. It may be possible to use tools like [wch-ch56x-isp](https://github.com/hydrausb3/wch-ch56x-isp) to manually reflash the bootloader and user code on the MCU in case of a corrupted internal flash.
+
 ## lsusb
 
 See [lsusb.txt](./lsusb.txt)
@@ -87,17 +91,17 @@ If the device successfully fulfilled a write request, the `reg_data` in the resp
 | 0x0050 | PWM1_CMP_PERIOD | W | PWM1 period comparator input. |
 | 0x0054 | PWM1_CMP_DUTY | W | PWM1 duty cycle comparator input. |
 | 0x0058 | TRIG_OUT_EN | W | Trigger out enable. |
-| 0x2008 | XFER_BUFFER_SIZE | W | Maximum transfer frame buffer size (guess) (`BUFSIZE` in PXView). |
-| 0x200c | FWRAM_READ_START | W | Start address of the FWRAM read request. Must be page-aligned (4KiB). |
-| 0x2010 | FWRAM_READ_END | W | End address of the FWRAM read request. Must be page-aligned (4KiB). |
-| 0x2014 | FWRAM_READ_PAGE | W | FWRAM page to read from. |
-| 0x2018 | FWRAM_WRITE_START | W | Start address of the FWRAM write request. Must be page-aligned (4KiB). |
-| 0x201c | FWRAM_WRITE_END | W | End address of the FWRAM write request. Must be page-aligned (4KiB). |
-| 0x2020 | FWRAM_WRITE_PAGE | W | FWRAM page to write to. |
-| 0x2024 | NUM_SAMPLES_LO | W | Lower 32-bit of number of samples to take (in bytes) (`limit_samples2Byte` in PXView) |
-| 0x2028 | NUM_SAMPLES_HI | W | Upper 32-bit of number of samples to take (in bytes) (`limit_samples2Byte` in PXView) |
-| 0x202c | BLOCK_START | W | Should be set to 0 (`set_block_start` in PXView). |
-| 0x2030 | MCU_RESET | W | Writing 0 to it resets the USB interface controller. |
+| 0x2008 | XFER_BUFFER_SIZE | R/W | Maximum transfer frame buffer size (guess) (`BUFSIZE` in PXView). |
+| 0x200c | FWRAM_READ_START | R/W | Start address of the FWRAM read request. Must be page-aligned (4KiB). |
+| 0x2010 | FWRAM_READ_END | R/W | End address of the FWRAM read request. Must be page-aligned (4KiB). |
+| 0x2014 | FWRAM_READ_BANK | R/W | FWRAM bank to read from. |
+| 0x2018 | FWRAM_WRITE_START | R/W | Start address of the FWRAM write request. Must be page-aligned (4KiB). |
+| 0x201c | FWRAM_WRITE_END | R/W | End address of the FWRAM write request. Must be page-aligned (4KiB). |
+| 0x2020 | FWRAM_WRITE_BANK | R/W | FWRAM bank to write to. |
+| 0x2024 | NUM_SAMPLES_LO | R/W | Lower 32-bit of number of samples to take (in bytes) (`limit_samples2Byte` in PXView) |
+| 0x2028 | NUM_SAMPLES_HI | R/W | Upper 32-bit of number of samples to take (in bytes) (`limit_samples2Byte` in PXView) |
+| 0x202c | SAMPLER_RESET | W | Writing to it resets certain sampler states on the MCU and FPGA (`set_block_start` in PXView). |
+| 0x2030 | MCU_RESET | W | Writing to it resets the USB interface controller. |
 | 0x2034 | MCU_FW_VERSION | R | The USB interface controller firmware version. |
 | 0x204c | ENABLED_NUM_CH | W | Total number of channels enabled (`ch_num` in PXView). |
 | 0x2050 | TRIG_POINT | W | Desired trigger position (capture ratio in samples). |
@@ -246,7 +250,7 @@ Seems to be the maximum frame buffer size in bytes used by the USB controller. N
 
 Value must both be page-aligned to 4KiB, and aligned to frame size.
 
-### 0x200c - FWRAM_READ_PAGE
+### 0x200c - FWRAM_READ_BANK
 
 | Value | Name | Notes |
 | - | - | - |
@@ -255,13 +259,13 @@ Value must both be page-aligned to 4KiB, and aligned to frame size.
 | 2 | FPGA_RAM | FPGA RAM (unused). |
 | 4 | FPGA_CFGRAM | Where the bit file goes. Length varies. |
 
-### 0x2020 - FWRAM_WRITE_PAGE
+### 0x2020 - FWRAM_WRITE_BANK
 
-See `0x200c - FWRAM_READ_PAGE`.
+See `0x200c - FWRAM_READ_BANK`.
 
-### 0x202c - BLOCK_START
+### 0x202c - SAMPLER_RESET
 
-Writing 0 to this register seems to reset certain states related to the sampler after the sampler has been (re)configured. Without this the capture won't start.
+Writing to this register seems to reset certain states related to the sampler after the sampler has been (re)configured. Without this the capture won't start.
 
 ### 0x2058 - DEV_VARIANT
 
@@ -330,7 +334,7 @@ The entire process is as follows:
   - Setting `PWM*_CONF` to 0 before making changes to `PWM*_CMP_PERIOD` and `PWM*_CMP_DUTY`.
   - These two registers should be set according to the rules defined in the register doc.
   - PWM1 is disabled, thus `PWM1_CONF_PWM_EN` should always be set to 0.
-- Clear the `BLOCK_START` register.
+- Write to `SAMPLER_RESET` register.
   - Seems like this can be skipped.
 - Clear the STALL condition on EP2 and EP4.
 - Configure the VREF PWM channel (`PWM_VREF_CMP_*`)
@@ -346,7 +350,7 @@ The entire process is as follows:
 - Compute and set `CLK_CONF` and `CLK_DIV` based on *PXView predefined sample rate config*.
 - Set the `ENABLED_NUM_CH` register.
 - Set the `TRIG_POINT` register based on capture ratio.
-- Clear the `BLOCK_START` register again.
+- Write to `SAMPLER_RESET` register again.
   - Without this the capture won't start.
 - Set the `CHANNEL_EN` register to reflect the channel status.
 - Toggle bits in the `MODE` register again.
