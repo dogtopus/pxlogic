@@ -47,14 +47,15 @@ To initialize the device, the following steps should be performed:
 
 1. Check `MCU_FW_VERSION` with the last known firmware version. If mismatch, send the MCU firmware to the device.
 2. Use `MCU_RESET` register to reset the MCU if firmware update has been performed.
-3. Send the FPGA stage 1 firmware.
-4. Send the FPGA stage 2 firmware.
+3. Wait for device to reboot if Step 2 has been performed.
+4. Send the FPGA stage 1 firmware.
+5. Send the FPGA stage 2 firmware.
 
 ## Control register
 
 Control registers are 32-bit registers that contain certain device identification information, device states, and can be used to control device function.
 
-There are 2 banks of registers, starting at address `0x0000` and `0x2000` respectively. The bank at `0x0000` seems to be sampler configuration registers, while the bank at `0x2000` seems to be general device configuration registers.
+There are 2 banks of registers, starting at address `0x0000` and `0x2000` respectively. The bank at `0x0000` contains FPGA (sampler) configuration registers, while the bank at `0x2000` contains MCU (USB interface) configuration registers.
 
 These registers are accessed through Interface 0, Endpoint 1 via a simple packet-based protocol. Each request and response packet consists the following (in little-endian):
 
@@ -127,6 +128,8 @@ This register holds some basic configuration options for the sampler.
 This value should have the same meaning as `PWM*_CMP_PERIOD`, however this is unverified.
 
 The driving clock frequency should logically be the same as the other PWM channels, however PXView seems to suggest that the clock frequency for this PWM block is 120MHz instead of the usual 125MHz. This might be a typo but no further research was done on this.
+
+(The MCU clock frequency seems to be 120MHz so the reference voltage PWM on the FPGA could be driven by some MCU clock output pin if it exists)
 
 The period is likely to be 10kHz, but due to the above mentioned issue, actual period may differ.
 
