@@ -1,0 +1,15 @@
+BTVER v2.8 UID <REDACTED> [0x1069] CH569 (flash 448K)
+raw: 11 bf f9 f7 11 bf f9 ee 45 f2 ff 0f
+00: RDPR: 0x11
+    [7:0]: 0x11 (enabled)
+02: USER: 0xf9
+04: DATA0: 0x11
+06: DATA1: 0xf9
+08: NV: 0x0ffff245
+    [31:30] USER_MEM: 0x0 (RAMX 32KB + ROM 96KB)
+      [29] LOCKUP_RST_EN: 0 (disabled)
+      [7] CODE_READ_EN: 0 (disabled)
+      [6] BOOT_EN: 1 (enabled)
+      [5] DEBUG_EN: 0 (disabled)
+      [4] RESET_EN: 0 (disabled)
+config done

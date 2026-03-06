@@ -13,26 +13,33 @@ Depending on the hardware configuration, it supports up to 32 channels, external
 - **Input voltage divider**: 1:2 (standard voltage divider made with two 100kOhm resistors)
 - **Input ESD protection**: 9x STMicroelectronics USBLC6-4SC6 TVS diode array
 - **USB-C mux**: Via Labs VL162
-  - Seems to be responsible for selecting HighSpeed/SuperSpeed connections based on host port capability.
+  - Could be used to make the USB HighSpeed hub controller to coexist with the USB interface controller.
 - **USB HighSpeed hub controller**: CoreChips SL2.1s
-  - Shows up as `1a40:0101` after connecting the device to the PC as a USB HighSpeed device (e.g. by using a USB HighSpeed-only Type C cable).
+  - Shows up as `1a40:0101`.
   - The D+/D- pins of CH569W are connected to Port 3 of this hub. Port 1 connects to an unpopulated 10-pin chip.
   - Could be for some unfinished genuine product certification system or a leftover debugging interface.
 
 ### Boot button
 
-There is a boot button located on the device at the right side of the USB-C port, that is accessible via a SIM ejecting tool. Press and hold it while plugging the device into a PC drops the device into ISP mode. It may be possible to use tools like [wch-ch56x-isp](https://github.com/hydrausb3/wch-ch56x-isp) to manually reflash the bootloader and user code on the MCU in case of a corrupted internal flash.
+There is a boot button located on the device at the right side of the USB-C port, that is accessible via a SIM ejecting tool. Press and hold it while plugging the device into a PC drops the device into ISP mode. It may be possible to use tools like [wch-ch56x-isp](https://github.com/hydrausb3/wch-ch56x-isp) or [wch-isp](https://git.sr.ht/~jmaselbas/wch-isp) to manually re-flash the bootloader and user code on the MCU in case of a corrupted internal flash.
+
+### MCU configuration
+
+See [wch-isp.txt](./wch-isp.txt)
 
 ## lsusb
 
-See [lsusb.txt](./lsusb.txt)
+- [SuperSpeed mode](./lsusb.txt)
+- [HighSpeed mode](./lsusb.hs.txt)
+- [SuperSpeed mode (built-in hub)](./lsusb.hub.txt)
+- [HighSpeed mode (built-in hub)](./lsusb.hub.hs.txt)
 
 ## Endpoints
 
 - Interface 0
     - Endpoint 1: Control register access endpoint
     - Endpoint 2: Sample data FIFO endpoint
-    - Endpoint 3: Device configuration / firmware RAM data FIFO endpoint
+    - Endpoint 3: Firmware RAM data FIFO endpoint
 - Interface 1
     - Endpoint 4: Unknown registers (used for debugging?)
     - Endpoint 5: Unknown
@@ -43,13 +50,16 @@ See [lsusb.txt](./lsusb.txt)
 
 There are 3 firmware files: the MCU firmware (`SCI_LOGIC.bin`), the FPGA stage 1 firmware (`hspi_ddr_RST.bin`) and the FPGA stage 2 firmware (`hspi_ddr.bin`).
 
-To initialize the device, the following steps should be performed:
+To configure the device for use, the following steps should be performed:
 
-1. Check `MCU_FW_VERSION` with the last known firmware version. If mismatch, send the MCU firmware to the device.
+1. Check `MCU_FW_VERSION` with the last supported firmware version by the driver. If mismatch, send the MCU firmware to the device (padded to 48KiB with `0xff`).
 2. Use `MCU_RESET` register to reset the MCU if firmware update has been performed.
 3. Wait for device to reboot if Step 2 has been performed.
-4. Send the FPGA stage 1 firmware.
-5. Send the FPGA stage 2 firmware.
+4. Send the FPGA stage 1 firmware (padded to multiple of 4096 bytes with `0x00`).
+5. Send the FPGA stage 2 firmware (padded to multiple of 4096 bytes with `0x00`).
+
+> ![NOTE]
+> If Step 2 is performed, the MCU and FPGA states may desynchronize and cause the device to not function properly. Thus in this case the driver should also perform Step 4 and 5 to re-synchronize the MCU and FPGA.
 
 ## Control register
 
@@ -78,19 +88,19 @@ If the device successfully fulfilled a write request, the `reg_data` in the resp
 | 0x0010 | CHANNEL_EN | W | Channel enable. |
 | 0x0014 | CLK_CONF | R/W | Sampler clock config. |
 | 0x0018 | CLK_DIV | R/W | Sampler clock divider. |
-| 0x001c | SAMPLE_BUFFER_SIZE | W | Sampler frame buffer size (guess) (`BUFSIZE` in PXView). |
+| 0x001c | SAMPLE_BUFFER_SIZE | R/W | Sampler frame buffer size (guess) (`BUFSIZE` in PXView). |
 | 0x0020 | STOP | W | Stop sampler. |
 | 0x0024 | TRIG_LOW | W | Low level trigger bitmask. |
 | 0x0028 | TRIG_HIGH | W | High level trigger bitmask. |
 | 0x002c | TRIG_RISING | W | Rising edge trigger bitmask. |
 | 0x0030 | TRIG_FALLING | W | Falling edge trigger bitmask. |
 | 0x003c | TRIG_EXT_MODE | W | External trigger mode. |
-| 0x0040 | PWM0_CONF | W | PWM0 config. |
-| 0x0044 | PWM0_CMP_PERIOD | W | PWM0 period comparator input. |
-| 0x0048 | PWM0_CMP_DUTY | W | PWM0 duty cycle comparator input. |
-| 0x004c | PWM1_CONF | W | PWM1 config. |
-| 0x0050 | PWM1_CMP_PERIOD | W | PWM1 period comparator input. |
-| 0x0054 | PWM1_CMP_DUTY | W | PWM1 duty cycle comparator input. |
+| 0x0040 | PWM0_CONF | R/W | PWM0 config. |
+| 0x0044 | PWM0_CMP_PERIOD | R/W | PWM0 period comparator input. |
+| 0x0048 | PWM0_CMP_DUTY | R/W | PWM0 duty cycle comparator input. |
+| 0x004c | PWM1_CONF | R/W | PWM1 config. |
+| 0x0050 | PWM1_CMP_PERIOD | R/W | PWM1 period comparator input. |
+| 0x0054 | PWM1_CMP_DUTY | R/W | PWM1 duty cycle comparator input. |
 | 0x0058 | TRIG_OUT_EN | W | Trigger out enable. |
 | 0x2008 | XFER_BUFFER_SIZE | R/W | Maximum transfer frame buffer size (guess) (`BUFSIZE` in PXView). |
 | 0x200c | FWRAM_READ_START | R/W | Start address of the FWRAM read request. Must be page-aligned (4KiB). |
@@ -105,7 +115,7 @@ If the device successfully fulfilled a write request, the `reg_data` in the resp
 | 0x2030 | MCU_RESET | W | Writing to it resets the USB interface controller. |
 | 0x2034 | MCU_FW_VERSION | R | The USB interface controller firmware version. |
 | 0x204c | ENABLED_NUM_CH | W | Total number of channels enabled (`ch_num` in PXView). |
-| 0x2050 | TRIG_POINT | W | Desired trigger position (capture ratio in samples). |
+| 0x2050 | TRIG_POINT | W | Desired trigger position (upper value of the capture ratio in number of samples). |
 | 0x2054 | TRIG_POINT_REAL | R | Actual trigger position (unused). |
 | 0x2058 | DEV_VARIANT | R | Device variant (`logic_mode` in PXView). |
 
@@ -135,11 +145,15 @@ The period is likely to be 10kHz, but due to the above mentioned issue, actual p
 
 During trigger level selection, PXView writes a fixed value `12000` to it.
 
+This doesn't seem to persist across capture sessions.
+
 ### 0x0008 - PWM_VREF_CMP_DUTY
 
 This value should have the same meaning as `PWM*_CMP_DUTY`, however this is unverified.
 
 During trigger level selection, PXView writes the value `Vth * (100.0 / 200.0) / 3.334 * PWM_VREF_CMP_PERIOD` to it. The `100.0 / 200.0` part reflects the frontend design (i.e. it divides the input voltage by 2 using two 100kOhm resistors).
+
+This doesn't seem to persist across capture sessions.
 
 ### 0x0010 - CHANNEL_EN
 
@@ -213,7 +227,7 @@ Two things to note:
 
 ### 0x003c - TRIG_EXT_MODE
 
-This control the Trigger In channel behavior.
+This control the Trigger In (TI) channel behavior.
 
 | Value | Name | Notes |
 | - | - | - |
@@ -239,9 +253,9 @@ The relationship between this and the output period frequency is `F_OUT = F_PWM 
 
 ### 0x0048 - PWM0_CMP_DUTY
 
-If the duty cycle controller counter counts above this value, the counter will be reset, causing the output to become low. This value should be kept less than `PWM0_CMP_PERIOD`.
+If the duty cycle controller counter counts to or above this value, the counter will be reset, causing the output to become low. This value should be kept less than or equal to `PWM0_CMP_PERIOD`.
 
-The relationship between this and the output duty cycle is `DUTY_OUT = (PWM0_CMP_DUTY + 1) / (PWM0_CMP_PERIOD + 1)` where `DUTY_OUT` is a real number between 0 and 1.
+The relationship between this and the output duty cycle is `DUTY_OUT = PWM0_CMP_DUTY / (PWM0_CMP_PERIOD + 1)` where `DUTY_OUT` is a real number between 0 and 1.
 
 ### 0x004c..=0x0054 - PWM1_\*
 
@@ -269,6 +283,14 @@ See `0x200c - FWRAM_READ_BANK`.
 ### 0x202c - SAMPLER_RESET
 
 Writing to this register seems to reset certain states related to the sampler after the sampler has been (re)configured. Without this the capture won't start.
+
+### 0x2050 - TRIG_POINT
+
+This register stores the desired upper value of the capture ratio in number of samples. That is, for example, if the capture ratio is 20% and the sample count is 5M, this value should be set to 1M.
+
+Actual trigger point will differ, and one should either use the `TRIG_POINT_REAL` register or the result from vendor-specific control transfer 0xb0 to determine that.
+
+It is unfortunately not possible to read back the previously set value, therefore a driver should not rely on the value of this register to determine the capture ratio, and instead either use a hardcoded default or store the value on the driver side in a configuration file.
 
 ### 0x2058 - DEV_VARIANT
 
