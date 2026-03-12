@@ -58,7 +58,7 @@ To configure the device for use, the following steps should be performed:
 4. Send the FPGA stage 1 firmware (padded to multiple of 4096 bytes with `0x00`).
 5. Send the FPGA stage 2 firmware (padded to multiple of 4096 bytes with `0x00`).
 
-> ![NOTE]
+> [!NOTE]
 > If Step 2 is performed, the MCU and FPGA states may desynchronize and cause the device to not function properly. Thus in this case the driver should also perform Step 4 and 5 to re-synchronize the MCU and FPGA.
 
 ## Control register
@@ -206,7 +206,7 @@ Seems to be the maximum frame buffer size in bytes used by the sampler. Normally
 
 Value must both be page-aligned to 4KiB, and aligned to frame size.
 
-The buffer contains various number of frames back-to-back. PXView determines this value through the following process:
+PXView determines this value through the following process:
 
 - Determine the maximum size the buffer can be of (MAX).
   - For USB Super Speed, this is 4MiB.
