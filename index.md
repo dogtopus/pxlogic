@@ -157,7 +157,10 @@ This doesn't seem to persist across capture sessions.
 
 ### 0x0010 - CHANNEL_EN
 
-Pretty straightforward: just a bitfield that has the LSB representing channel 0, and the MSB representing channel 31. Note that on variants with less than 32 channels one should probably keep the unsupported channels at 0.
+Pretty straightforward: just a bitfield that has the LSB representing channel 0, and the MSB representing channel 31.
+
+> [!NOTE]
+> On variants with less than 32 channels, the bits that represent unsupported channels should be set to 0.
 
 ### 0x0014 - CLK_CONF
 
@@ -231,7 +234,7 @@ This control the Trigger In (TI) channel behavior.
 
 | Value | Name | Notes |
 | - | - | - |
-| 0 | TRIG_NONE | No trigger. |
+| 0 | TRIG_OFF | No trigger. |
 | 1 | TRIG_RISING | Trigger on rising edge. |
 | 2 | TRIG_HIGH | Trigger on high level. |
 | 3 | TRIG_FALLING | Trigger on falling edge. |
